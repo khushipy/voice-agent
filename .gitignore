@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+*.log
+
+# Node.js
+frontend/node_modules/
+
+# Environment
+.env
+
+# Outputs
+backend/outputs/
+backend/transcripts/
+
+# IDE
+.vscode/
+.idea/
