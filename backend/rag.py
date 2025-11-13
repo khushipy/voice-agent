@@ -1,57 +1,31 @@
+import os
+from langchain_community.document_loaders import PyPDFLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_huggingface import HuggingFaceEmbeddings, HuggingFacePipeline
-from langchain.chains import RetrievalQA
+from langchain_huggingface import HuggingFaceEmbeddings
 
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, pipeline
+DB_PATH = "data/faiss_index"
+PDFS = ["pdfs/llm.pdf", "pdfs/rag.pdf"]
 
+def ingest_pdfs():
+    embeddings = HuggingFaceEmbeddings(model_name=os.getenv("HUGGINGFACE_EMBEDDINGS_MODEL"))
+    all_chunks = []
 
+    for pdf_path in PDFS:
+        loader = PyPDFLoader(pdf_path)
+        docs = loader.load()
+        splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
+        chunks = splitter.split_documents(docs)
+        all_chunks.extend(chunks)
 
-def answer_from_docs(query: str) -> str:
-    """Retrieve answers from local PDFs using FAISS + local HuggingFace model."""
+    vectorstore = FAISS.from_documents(all_chunks, embeddings)
+    os.makedirs(DB_PATH, exist_ok=True)
+    vectorstore.save_local(DB_PATH)
+    return "PDFs ingested and FAISS index created."
 
-    # Load PDFs
-    loaders = [
-        PyPDFLoader("data/llm.pdf"),
-        PyPDFLoader("data/rag.pdf")
-    ]
-    docs = []
-    for loader in loaders:
-        docs.extend(loader.load())
-
-    # Split documents
-    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=200)
-    texts = text_splitter.split_documents(docs)
-
-    # Embeddings
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-
-    # Vector store
-    vectorstore = FAISS.from_documents(texts, embeddings)
-    retriever = vectorstore.as_retriever()
-
-    # Local model pipeline
-    model_name = "google/flan-t5-small"
-    tokenizer = AutoTokenizer.from_pretrained(model_name)
-    model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-
-    pipe = pipeline(
-        "text2text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        max_length=256,
-        device_map="auto"
-    )
-
-    llm = HuggingFacePipeline(pipeline=pipe)
-
-    # Combine retriever + model
-    qa = RetrievalQA.from_chain_type(
-        llm=llm,
-        retriever=retriever,
-        chain_type="stuff"
-    )
-
-    return qa.run(query)
+def get_vectorstore():
+    embeddings = HuggingFaceEmbeddings(model_name=os.getenv("HUGGINGFACE_EMBEDDINGS_MODEL"))
+    if not os.path.exists(DB_PATH):
+        ingest_pdfs()
+    return FAISS.load_local(DB_PATH, embeddings)
 
